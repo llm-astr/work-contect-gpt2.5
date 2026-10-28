@@ -1,13 +1,4 @@
 - insert:
     - id: yomi-image-mcp
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        serverName: yomi_image
-        transport: stdio
-        command: !!js process.env.YOMI_PYTHON || 'python3'
-        args:
-          - !!js process.getBuiltinModule('node:module').createRequire(new URL('__dsh_resolve__.cjs', ctx.baseUrl)).resolve('dsh-yomi-image-mcp/server.py')
-        env:
-          YOMI_WORKSPACE: !!js process.env.YOMI_WORKSPACE || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), 'dshwork')
-        toolCallTimeoutMs: 660000
-        failOnStartupError: true
+      name: dsh-yomi-image-mcp
+      config: {}

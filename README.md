@@ -1,88 +1,62 @@
-# Yomi GPT Image MCP — DSH 插件
+# Yomi GPT Image — DSH 插件 2.0
 
-可通过 DSH「插件 → 添加插件」安装的标准配置 bundle，使用官方 `@deepseek-ai/dsh-mcp-client` 启动随包 Python 服务，无需自写 Host/Client 入口。
+**添加插件 → 填写 API Key → 使用图片工具。** 不需要 Python、Homebrew、系统 Node、pip、额外进程或初始化脚本。使用 DSH 自带 JavaScript 运行环境，保留原有 `mcp__yomi_image__*` 工具名称和官方 MCP 图像结果适配器；2.0 是原生 Host 插件，不再启动独立 Python MCP 服务。
 
-## 安装
+## 安装和配置
 
-环境要求：DSH NEXT 2.0.20-next / DSH 0.2.1-rc.3 或兼容版本；Node 22+（DSH 自带）；PATH 中的 **Python 3.9+**。仅用标准库，无 pip 依赖、无安装脚本。Windows 请准备 `python3`，或启动 DSH 前设置 `YOMI_PYTHON` 为解释器路径。
-
-打开 **插件 → 添加插件**，输入：
+在 DSH **插件 → 添加插件** 输入：
 
 ```text
-github:LLM-ASTR/work-contect-gpt2.5
+github:llm-astr/work-contect-gpt2.5
 ```
 
-安装启用后按提示完整重启 DSH。正式部署建议用 `github:LLM-ASTR/work-contect-gpt2.5#<commit>` 固定提交。也可通过官方 CLI：
+安装／更新后完整重启 DSH，再刷新原来的 Web 页面。打开 **插件 → Yomi GPT 图片工具 → 配置**（插件下的 `yomi-image-mcp` 配置入口）：
 
-```sh
-dsh plugin --profile <profile> install github:LLM-ASTR/work-contect-gpt2.5
-```
+1. 在隐藏输入框中填写 API Key，点击保存。
+2. 默认工作区为 `~/dshwork`；可以改为另一个绝对路径。
+3. 后续可随时更换 Key、修改目录或清除 Key；保存后**下一次调用生效，无需重启**，已开始的请求仍使用启动时配置。
 
-仓库根目录包含 npm manifest 和 `dsh.bundle.patch`，无需构建，不另装官方 MCP client。保留普通工具型聊天模型，不把图片模型选作主聊天模型。
+Key 留空保存会保留原值，界面不回显原值。**隐藏输入与脱敏不等于加密存储**：DSH 将 Key 写入本机 profile 配置，采用其配置文件权限管理；不是系统钥匙串或加密保险库，请勿分享 profile。插件不将 Key 写入工具参数、结果或状态；没有 Key 时仍可调用 status。
 
-## 工作区与密钥
+旧版本的工作区 `.secrets/yomi-image-key` 不会被自动读取或迁移，升级后请在插件配置重新填写。旧脚本仅保留在 Git 历史里；2.0 分发不含 Python。
 
-默认工作区是用户主目录下 `dshwork`（`~/dshwork`），**不是自动获取当前会话目录**。MCP 是 profile 级共享进程，不跟随会话切换目录。参考图须先复制到配置的工作区。
+支持 DSH NEXT 2.0.20-next / DSH 0.2.1-rc.3 API 或兼容版本。无需安装第三方依赖、无需安装脚本、无需前端构建。插件使用宿主的 schemastery、MCP 适配器、配置表单及审批服务，不能作为独立 npm CLI 运行。
 
-密钥位置：`<工作区>/.secrets/yomi-image-key`；输出目录：`<工作区>/generated-images`。没有密钥也能启动及调用 `status`，但不能生成图片。从仓库本地副本在终端执行：
+## 工具与工作区
 
-```sh
-python3 setup_key.py
-```
+- `mcp__yomi_image__status`：只检查本地配置，不联网、不显示 Key，也不宣称已验证远端。
+- `mcp__yomi_image__generate_image`：文生图。
+- `mcp__yomi_image__edit_image`：1–4 张参考图编辑，可选 PNG 蒙版。
 
-隐藏输入密钥，不在聊天或 GitHub 中发送。脚本只在本机保存权限 600 的文件，目录 700，不调用 API。曾暴露的旧密钥应先撤销。POSIX 权限检查主要面向 macOS/Linux；Windows 使用者需另确保凭据 ACL 不向其他用户开放。
+工作区是插件共享配置，不会跟随每个聊天会话切换。参考图须先放入此目录；生成结果保存到 `generated-images`。不要将整个主目录设为工作区。
 
-自定义目录时，初始化脚本和 DSH 启动环境须一致设置 `YOMI_WORKSPACE`，或在 DSH MCP 配置中设置 `env.YOMI_WORKSPACE` 为绝对路径。macOS 从 Dock 启动不一定继承终端环境；修改后完整重启 DSH。不要把密钥本身写进配置。
+请求固定发往第三方 `https://api.yomiapi.com/v1`，会上传提示词与指定图片。每次请求一张，**不自动重试**。超时／连接断开后仍可能计费，先查中转记录，不能直接重发。
 
-```sh
-YOMI_WORKSPACE="$HOME/Pictures/image-work" python3 setup_key.py
-```
+## 模型、尺寸与比例
 
-## 工具
+- 默认、未声明分辨率、1K：`gpt-image-2.5`。
+- 明确声明 2K／4K，或明确指定目标像素尺寸最长边 **>2048**：`gpt-image-2.5-sunburst`。
+- `1536×2048`、`2048×2048` 不超过普通 2.5 上限。
+- **任何比例都只影响长宽比，不推断像素尺寸，不升级模型。** 仅说 3:4、16:9、正方形等时，不应擅自增加 size 或 2K/4K 字样。
+- 显式 model 可覆盖选择；质量不会自动升级模型。xhigh/max 只支持 Sunburst。
+- 参考图本身的像素尺寸不参与选模型；成功返回注明实际请求模型及请求尺寸。
 
-- `mcp__yomi_image__status`：本地状态，不联网、不显示密钥。
-- `mcp__yomi_image__generate_image`：文生图，JSON POST `/v1/images/generations`。
-- `mcp__yomi_image__edit_image`：图生图／编辑，multipart POST `/v1/images/edits`，1–4 张参考图及可选 PNG 蒙版。
+2048 是用户实测确认的 Yomi 普通模型最长边界限，不代表 OpenAI 通用上限。文本路由只识别 2K/4K 字面词，不能可靠理解否定／矛盾要求，调用方应传清晰的最终要求。
 
-API 固定为 `https://api.yomiapi.com/v1`。提示词与指定图片会发给第三方服务。只在用户要求时调用，每次请求一张，不自动重试。连接关闭或超时后仍可能计费，先核实中转记录，不可直接重发。
+目标像素宽高须为16倍数，比例1:3至3:1，最大3840×2160（允许竖向交换）。高于2560×1440的尺寸按兼容约定为实验性，以中转实际支持为准。未传 size 时由上游选择文件像素，不保证严格1K。
 
-## 模型与尺寸规则
+## Sunburst 确认
 
-- 未声明分辨率或声明 1K：`gpt-image-2.5`。
-- 明确声明 2K／4K：`gpt-image-2.5-sunburst`。
-- 指定目标像素 `size: WIDTHxHEIGHT` 且最长边 **>2048**：Sunburst；等于 2048 仍为普通 2.5（例如 1536×2048）。
-- **任何比例只控制长宽比，不推断像素尺寸、不升级模型。** 只说 3:4、16:9、正方形等时，调用方不得主动添加高分辨率 `size`。
-- 显式 `model` 覆盖自动路由；不应在用户未要求时强行选择 Sunburst。
-- 质量不升级模型。`xhigh/max` 仅支持 Sunburst，普通模型使用这些质量会在联网前报错。
+2.0 直接使用 **DSH 审批交互**：每次 Sunburst 请求联网前显示模型、目标尺寸和提示词，只有本次允许后才发送。拒绝、取消、审批服务缺失或不可用时均不发送。无需终端 APPROVE、文件批准或重复提交。普通 2.5 不增加此审批。DSH 若配置自动化审批者，其授权行为由部署方决定；本插件不绕过宿主审批策略。
 
-2048 是用户更正后确认的 Yomi 普通模型边长限制，不宣称这是 OpenAI 通用上限。文本路由只做 2K/4K 字面识别，不能可靠理解否定或矛盾要求；请传清晰的最终提示词，必要时显式指定模型。
+## 安全及验证范围
 
-尺寸采用 [OpenAI 官方 OpenAPI](https://github.com/openai/openai-openapi/blob/master/openapi.yaml) 的 GPT Image 兼容约定：宽高为 16 的倍数、比例 1:3 至 3:1、最大 3840×2160（可交换竖向），高于 2560×1440 为实验性，实际以中转限制为准。质量可选 `auto/low/medium/high/xhigh/max`。未给尺寸时由上游选择像素尺寸，插件不保证输出严格是 1K。
+- 本地参考图真实路径必须在工作区内，拒绝越界符号链接，检测PNG/JPEG/WebP magic，40MiB限制。
+- API拒绝重定向；图片下载逐跳校验公网HTTPS，固定已校验DNS地址，不转发API Key。
+- 不显示上游错误正文，读取响应有界，支持超时和取消。蒙版尺寸有可读尺寸时本地校验，否则以API为准。
+- DSH配置使用secret/volatile字段；设置写入不回显旧Key，运行时每次读取最新配置。
+- 不含用户图片和密钥。图片块显示依赖聊天模型能力；按工具明确返回路径交付，不猜测目录最新图片。
 
-示例：“使用参考图生成 Zippo 产品展示图，名称蛇女刀魂，比例 3:4，只出一版。”应使用普通 2.5，省略 size。参考图原有像素尺寸不参与选模型。
+开发测试：`node --test test-core.js`。只mock，不调用付费API。宿主集成测试通过DSH自带Node执行；浏览器配置页视觉布局仍需在原GUI刷新后人工验证，不把静态代码检查宣称为点击验证。Windows尚未端到端验证。
 
-## Sunburst 一次性确认（1.2.0）
-
-所有 Sunburst 请求，包括显式 model 强选，在联网前暂停。工具返回本机终端命令；用户需亲自在交互终端查看完整参数并输入 `APPROVE`，然后让聊天模型原样提交一次。批准绑定工具名及完整参数，10 分钟过期，发送前即消耗，失败不自动重试。不批准时不发送 API 请求。
-
-聊天模型不得自行运行确认命令，也不能把修改后的提示词当作用户原始分辨率意图。确认文件存在工作区 `.secrets/image-approvals`，含提示词和路径，不含 API 密钥，请勿分享。此机制没有接入 DSH GUI 审批弹窗，且**不是针对拥有任意 shell/文件权限智能体的系统安全边界**。请勿让智能体代为写确认文件。普通 2.5 请求无需额外确认。
-
-工具成功返回时会注明实际请求的模型与请求尺寸，避免仅凭生成文件像素尺寸猜测模型。
-
-## 安全与限制
-
-- 参考图检查真实路径，只允许配置的工作区内文件；支持 PNG/JPEG/WebP，单图不超过 40 MiB。
-- API 不跟随重定向，图片下载只接受公网 HTTPS 且不转发密钥。DNS 检查不替代网络隔离，不构成完整 DNS rebinding 防护。
-- 不显示上游错误正文或凭据，不自动重试。蒙版透明区域和尺寸匹配由上游校验。
-- 图片块投影依赖聊天模型支持；即使投影失败，仍按工具返回的明确路径交付，不能猜测目录最新图片就是本次结果。
-- 仓库不含凭据、个人参考图、生成图片或 DSH profile。不要提交这些数据。
-
-## 测试
-
-```sh
-python3 -m unittest discover -s . -v
-```
-
-测试包括 MCP stdio 初始化／工具发现、模拟生成与编辑、图片保存、模型路由、尺寸及基础安全检查，**不调用付费 API**。安装兼容性应通过隔离 profile 分别验证本地包及固定 GitHub 提交。CLI 与 GUI 添加入口使用同一插件管理器；CLI 测试不等于已人工点击验证 GUI。Windows 尚未端到端验证。
-
-同路径本地包可能被包管理器缓存；更新请用官方插件管理器移除再安装，完整重启 DSH。不修改应用安装包。
+同路径本地包可能有缓存；旧版本升级可通过官方插件管理器移除旧包，再添加GitHub新版本，完整重启DSH并刷新页面。不修改DSH安装包、不启动替代Web服务器。

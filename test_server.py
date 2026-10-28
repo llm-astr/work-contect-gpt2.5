@@ -43,7 +43,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(list(root.iterdir()), [])
 
     def test_ratio_does_not_inject_size(self):
-        with patch.object(s, 'api', return_value={}) as api, patch.object(s, 'save_response', return_value={}):
+        with patch.object(s, 'api', return_value={}) as api, patch.object(s, 'save_response', return_value={'content': []}):
             for ratio in ('3:4', '16:9', '1:1', '9:16'):
                 s.call('generate_image', {'prompt': '产品展示图，比例' + ratio})
                 fields = json.loads(api.call_args.args[1])
@@ -51,14 +51,14 @@ class Tests(unittest.TestCase):
                 self.assertEqual(fields['model'], 'gpt-image-2.5')
 
     def test_generation(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(s, 'ROOT', Path(tmp).resolve()), patch.object(s, 'OUT', Path(tmp)/'output'), patch.object(s, 'api', return_value={'data': [{'b64_json': base64.b64encode(PNG).decode()}]}) as api:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(s, 'ROOT', Path(tmp).resolve()), patch.object(s, 'OUT', Path(tmp)/'output'), patch.object(s, 'api', return_value={'data': [{'b64_json': base64.b64encode(PNG).decode()}]}) as api, patch('approval.require_approval'):
             result = s.call('generate_image', {'prompt': 'cat', 'size': '3840x2160', 'quality': 'max'})
             self.assertEqual(api.call_args.args[0], '/images/generations')
             payload = json.loads(api.call_args.args[1])
             self.assertEqual(payload['model'], 'gpt-image-2.5-sunburst')
             self.assertEqual(payload['size'], '3840x2160')
             self.assertEqual(payload['quality'], 'max')
-            self.assertEqual(result['content'][1]['mimeType'], 'image/png')
+            self.assertEqual(result['content'][2]['mimeType'], 'image/png')
             self.assertEqual(len(list((Path(tmp)/'output').iterdir())), 1)
 
     def test_resolution_model_routing(self):
@@ -67,12 +67,12 @@ class Tests(unittest.TestCase):
         self.assertEqual(s.select_model({'prompt': '生成一张 2K 图片'}), 'gpt-image-2.5-sunburst')
         self.assertEqual(s.select_model({'prompt': '生成一张 4K 图片'}), 'gpt-image-2.5-sunburst')
         self.assertEqual(s.select_model({'prompt': '生成一张图', 'size': '1536x1024'}), 'gpt-image-2.5')
-        self.assertEqual(s.select_model({'prompt': '生成一张图', 'size': '1536x2048'}), 'gpt-image-2.5-sunburst')
-        self.assertEqual(s.select_model({'prompt': '生成一张图', 'size': '2048x2048'}), 'gpt-image-2.5-sunburst')
+        self.assertEqual(s.select_model({'prompt': '生成一张图', 'size': '1536x2048'}), 'gpt-image-2.5')
+        self.assertEqual(s.select_model({'prompt': '生成一张图', 'size': '2048x2048'}), 'gpt-image-2.5')
         for ratio in ('1:1', '3:4', '4:3', '9:16', '16:9', '2:3', '3:2', '1:3', '3:1', '21:9', '9：16', '4∶5', '正方形', '竖版', '横版'):
             self.assertEqual(s.select_model({'prompt': '生成一张图，比例 ' + ratio}), 'gpt-image-2.5', ratio)
         self.assertEqual(s.select_model({'prompt': '生成一张图', 'size': '1536x1536'}), 'gpt-image-2.5')
-        self.assertEqual(s.select_model({'prompt': '生成一张图', 'size': '1552x1024'}), 'gpt-image-2.5-sunburst')
+        self.assertEqual(s.select_model({'prompt': '生成一张图', 'size': '2064x1024'}), 'gpt-image-2.5-sunburst')
         self.assertEqual(s.select_model({'prompt': '生成一张图', 'model': 'gpt-image-2.5'}), 'gpt-image-2.5')
 
     def test_edit(self):
@@ -82,6 +82,31 @@ class Tests(unittest.TestCase):
             self.assertEqual(api.call_args.args[0], '/images/edits')
             self.assertIn(b'name="image"', api.call_args.args[1])
             self.assertIn(PNG, api.call_args.args[1])
+
+    def test_sunburst_blocked_before_api(self):
+        import approval
+        with tempfile.TemporaryDirectory() as tmp, patch.object(s, 'ROOT', Path(tmp).resolve()), patch.object(s, 'api') as api:
+            args = {'prompt': '3:4 poster, 2K', 'model': s.SUNBURST_MODEL, 'size': '1536x2048'}
+            with self.assertRaisesRegex(ValueError, '需要用户本机确认'):
+                s.call('generate_image', args)
+            api.assert_not_called()
+            pending = next((Path(tmp)/'.secrets/image-approvals').glob('*.pending.json'))
+            with patch('sys.stdin.isatty', return_value=False), self.assertRaises(ValueError):
+                approval.approve(pending.name.split('.')[0], Path(tmp))
+
+    def test_approval_consumed_once_and_bound_to_args(self):
+        import approval
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = {'prompt': '2K cat'}
+            folder = approval.directory(root)
+            record = {'digest': approval.digest('generate_image', args), 'expires': 9999999999}
+            (folder/(record['digest']+'.approved.json')).write_text(json.dumps(record))
+            with self.assertRaises(ValueError):
+                approval.require_approval(root, 'generate_image', {'prompt': '4K cat'})
+            approval.require_approval(root, 'generate_image', args)
+            with self.assertRaises(ValueError):
+                approval.require_approval(root, 'generate_image', args)
 
     def test_model_and_size_validation(self):
         invalid = [

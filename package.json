@@ -1,6 +1,6 @@
 {
   "name": "dsh-yomi-image-mcp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "DSH YomiAPI image generation and editing MCP bundle with GPT Image model routing",
@@ -12,7 +12,7 @@
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
-  "files": ["cordis.patch.yml", "server.py", "setup_key.py", "README.md", "locale/*.json", "icon.svg"],
+  "files": ["cordis.patch.yml", "server.py", "approval.py", "setup_key.py", "README.md", "locale/*.json", "icon.svg"],
   "scripts": { "test": "python3 -m unittest discover -s . -v" },
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
 }

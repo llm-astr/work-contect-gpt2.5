@@ -142,14 +142,14 @@ QUALITY = ('auto', 'low', 'medium', 'high', 'xhigh', 'max')
 
 COMMON = {
     'prompt': {'type': 'string', 'minLength': 1, 'description': '完整生图/编辑提示词'},
-    'model': {'type': 'string', 'enum': list(MODELS), 'description': '无分辨率声明或1K使用 gpt-image-2.5；明确声明2K/4K或指定超过1536像素长边的目标尺寸时使用 gpt-image-2.5-sunburst。任何比例只影响构图，不触发模型升级或尺寸推断；显式 model 可覆盖'},
+    'model': {'type': 'string', 'enum': list(MODELS), 'description': '无分辨率声明或1K使用 gpt-image-2.5；明确声明2K/4K或指定超过2048像素长边的目标尺寸时使用 gpt-image-2.5-sunburst。任何比例只影响构图，不触发模型升级或尺寸推断；显式 model 可覆盖'},
     'size': {'type': 'string', 'description': '输出像素尺寸 WIDTHxHEIGHT；宽高须为16的倍数，比例1:3至3:1，最大3840x2160'},
     'quality': {'type': 'string', 'enum': list(QUALITY), 'description': '图像质量；sunburst 支持 low、medium、high、xhigh、max、auto'},
 }
 TOOLS = [
     {'name': 'status', 'description': '检查生图配置，不调用外部 API、不消耗额度，不显示密钥。', 'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
-    {'name': 'generate_image', 'description': '付费文生图：无分辨率声明或声明1K时调用 gpt-image-2.5；明确声明2K/4K或指定最长边超过1536像素的目标尺寸时调用 gpt-image-2.5-sunburst。任何构图比例只影响长宽比，不推断尺寸、不升级模型。支持官方 GPT Image 任意尺寸（宽高16倍数、比例1:3至3:1、最大3840x2160）及 auto/low/medium/high/xhigh/max 质量。显式 model 可覆盖自动选择。仅在用户要求时调用；每次一张，不自动重试。', 'inputSchema': {'type': 'object', 'properties': COMMON, 'required': ['prompt'], 'additionalProperties': False}},
-    {'name': 'edit_image', 'description': '付费图生图/图像编辑：无分辨率声明或声明1K时调用 gpt-image-2.5；明确声明2K/4K或指定最长边超过1536像素的目标尺寸时调用 gpt-image-2.5-sunburst。任何构图比例只影响长宽比，不推断尺寸、不升级模型。支持 GPT Image 尺寸（宽高16倍数、比例1:3至3:1、最大3840x2160）及 auto/low/medium/high/xhigh/max 质量。显式 model 可覆盖自动选择。参考图必须先保存到工作区；可选 PNG 蒙版。每次一张，不自动重试。', 'inputSchema': {'type': 'object', 'properties': dict(COMMON, image_paths={'type': 'array', 'items': {'type': 'string'}, 'minItems': 1, 'maxItems': 4}, mask_path={'type': 'string', 'description': '可选 PNG 蒙版，透明区域编辑；需与原图尺寸匹配'}), 'required': ['prompt', 'image_paths'], 'additionalProperties': False}},
+    {'name': 'generate_image', 'description': '付费文生图：无分辨率声明或声明1K时调用 gpt-image-2.5；明确声明2K/4K或指定最长边超过2048像素的目标尺寸时调用 gpt-image-2.5-sunburst。任何构图比例只影响长宽比，不推断尺寸、不升级模型。支持官方 GPT Image 任意尺寸（宽高16倍数、比例1:3至3:1、最大3840x2160）及 auto/low/medium/high/xhigh/max 质量。显式 model 可覆盖自动选择。仅在用户要求时调用；每次一张，不自动重试。', 'inputSchema': {'type': 'object', 'properties': COMMON, 'required': ['prompt'], 'additionalProperties': False}},
+    {'name': 'edit_image', 'description': '付费图生图/图像编辑：无分辨率声明或声明1K时调用 gpt-image-2.5；明确声明2K/4K或指定最长边超过2048像素的目标尺寸时调用 gpt-image-2.5-sunburst。任何构图比例只影响长宽比，不推断尺寸、不升级模型。支持 GPT Image 尺寸（宽高16倍数、比例1:3至3:1、最大3840x2160）及 auto/low/medium/high/xhigh/max 质量。显式 model 可覆盖自动选择。参考图必须先保存到工作区；可选 PNG 蒙版。每次一张，不自动重试。', 'inputSchema': {'type': 'object', 'properties': dict(COMMON, image_paths={'type': 'array', 'items': {'type': 'string'}, 'minItems': 1, 'maxItems': 4}, mask_path={'type': 'string', 'description': '可选 PNG 蒙版，透明区域编辑；需与原图尺寸匹配'}), 'required': ['prompt', 'image_paths'], 'additionalProperties': False}},
 ]
 
 
@@ -166,9 +166,9 @@ def select_model(args):
         match = re.fullmatch(r'(\d{2,5})x(\d{2,5})', size)
         if match:
             width, height = map(int, match.groups())
-            # User-confirmed provider limit: ordinary 2.5 supports a longest edge <=1536.
+            # User-confirmed provider limit: ordinary 2.5 supports a longest edge <=2048.
             # Only an explicit pixel target is tested here; ratios never create a size.
-            if max(width, height) > 1536:
+            if max(width, height) > 2048:
                 high_resolution = True
     return SUNBURST_MODEL if high_resolution else DEFAULT_MODEL
 
@@ -215,6 +215,9 @@ def call(name, args):
         if quality in ('xhigh', 'max') and model != 'gpt-image-2.5-sunburst':
             raise ValueError('xhigh 和 max 质量仅为 sunburst 提供；请切换模型或使用 high。')
         fields['quality'] = quality
+    if model == SUNBURST_MODEL:
+        from approval import require_approval
+        require_approval(ROOT, name, args)
     if name == 'generate_image':
         result = api('/images/generations', json.dumps(fields).encode(), 'application/json')
     else:
@@ -228,13 +231,15 @@ def call(name, args):
             files.append(('mask', args['mask_path']))
         body, ct = multipart(fields, files)
         result = api('/images/edits', body, ct)
-    return save_response(result)
+    response = save_response(result)
+    response['content'].insert(0, {'type': 'text', 'text': '实际请求模型：' + model + '；请求尺寸：' + fields.get('size', '未指定（上游自动）')})
+    return response
 
 
 def handle(req):
     method = req.get('method')
     if method == 'initialize':
-        return {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'yomi-image', 'version': '1.0.0'}, 'instructions': 'Use generate_image for text-to-image, edit_image for reference images or editing. No resolution declaration or 1K uses gpt-image-2.5. Explicit 2K/4K or a requested target size with a longest edge above 1536 pixels uses gpt-image-2.5-sunburst. Any composition ratio affects aspect ratio only; it never implies a pixel size or triggers model upgrade. Explicit model overrides routing. Supported size follows official GPT Image rules: WIDTHxHEIGHT, dimensions divisible by 16, aspect ratio 1:3 to 3:1, maximum 3840x2160. sunburst supports auto/low/medium/high/xhigh/max quality. These calls incur API charges. Never auto-retry failed image requests. Keep a normal tool-capable chat model selected. Return saved image paths to user and display images.'}
+        return {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'yomi-image', 'version': '1.0.0'}, 'instructions': 'Use generate_image for text-to-image, edit_image for reference images or editing. No resolution declaration or 1K uses gpt-image-2.5. Explicit 2K/4K or a requested target size with a longest edge above 2048 pixels uses gpt-image-2.5-sunburst. Any composition ratio affects aspect ratio only; it never implies a pixel size or triggers model upgrade. Explicit model overrides routing but all Sunburst calls require one-use local interactive user approval before any paid request. Never execute the approval command yourself. Never invent 2K/4K or pixel sizes from aspect ratios. Supported size follows official GPT Image rules: WIDTHxHEIGHT, dimensions divisible by 16, aspect ratio 1:3 to 3:1, maximum 3840x2160. sunburst supports auto/low/medium/high/xhigh/max quality. These calls incur API charges. Never auto-retry failed image requests. Keep a normal tool-capable chat model selected. Return saved image paths to user and display images.'}
     if method == 'ping':
         return {}
     if method == 'tools/list':

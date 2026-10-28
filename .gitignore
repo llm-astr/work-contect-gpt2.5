@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.secrets/
+generated-images/
+node_modules/
+*.tgz
+.env
+.DS_Store

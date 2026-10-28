@@ -1,6 +1,7 @@
 import base64
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -27,6 +28,27 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(rows), 3)
         self.assertEqual(len(rows[1]['result']['tools']), 3)
         self.assertNotIn('error', rows[0])
+
+    def test_portable_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            request = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': 'status'}}
+            env = dict(os.environ, YOMI_WORKSPACE=str(root))
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name('server.py'))],
+                                    input=json.dumps(request) + '\n', text=True, capture_output=True,
+                                    env=env, check=True)
+            status = json.loads(json.loads(result.stdout)['result']['content'][0]['text'])
+            self.assertEqual(status['workspace'], str(root))
+            self.assertEqual(status['default_model'], 'gpt-image-2.5')
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_ratio_does_not_inject_size(self):
+        with patch.object(s, 'api', return_value={}) as api, patch.object(s, 'save_response', return_value={}):
+            for ratio in ('3:4', '16:9', '1:1', '9:16'):
+                s.call('generate_image', {'prompt': '产品展示图，比例' + ratio})
+                fields = json.loads(api.call_args.args[1])
+                self.assertNotIn('size', fields)
+                self.assertEqual(fields['model'], 'gpt-image-2.5')
 
     def test_generation(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(s, 'ROOT', Path(tmp).resolve()), patch.object(s, 'OUT', Path(tmp)/'output'), patch.object(s, 'api', return_value={'data': [{'b64_json': base64.b64encode(PNG).decode()}]}) as api:

@@ -14,16 +14,24 @@ const QUALITY = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'];
 const BASE = 'https://api.yomiapi.com/v1';
 const LIMIT = 40 * 1024 * 1024;
 const TIMEOUT = 480_000;
+export const RATIO_SIZES = Object.freeze({
+  '1:1': '1024x1024', '16:9': '1672x941', '9:16': '941x1672',
+  '4:3': '1443x1090', '3:4': '1090x1443', '3:2': '1536x1024',
+  '2:3': '1024x1536', '5:4': '1408x1120', '4:5': '1120x1408',
+  '21:9': '1920x832', '832:1920': '832x1920', '9:21': '832x1920',
+  '2:1': '1792x896', '1:2': '896x1792',
+});
 const COMMON = {
   prompt: { type: 'string', minLength: 1, description: '完整生图/编辑提示词' },
-  model: { type: 'string', enum: MODELS, description: '默认 gpt-image-2.5；明确2K/4K或size长边超过2048使用sunburst。显式model覆盖；比例不推断size。' },
-  size: { type: 'string', description: 'auto或WIDTHxHEIGHT；宽高为16倍数，比例1:3至3:1，最大3840x2160（也支持竖图）' },
+  model: { type: 'string', enum: MODELS, description: '默认 gpt-image-2.5；明确2K/4K或size长边超过2048使用sunburst。显式model覆盖；普通2.5仅指定比例时使用对应默认尺寸。' },
+  aspect_ratio: { type: 'string', enum: Object.keys(RATIO_SIZES), description: '普通gpt-image-2.5未指定size时按比例使用最优尺寸；也可直接在prompt写比例。明确size（含auto）优先。' },
+  size: { type: 'string', description: 'auto或WIDTHxHEIGHT；一般宽高为16倍数，普通2.5另支持比例预设的精确像素值，最大3840x2160（也支持竖图）' },
   quality: { type: 'string', enum: QUALITY, description: 'xhigh和max仅支持sunburst' },
 };
 
 export const tools = [
   { name: 'status', description: '检查生图配置，不调用外部API、不消耗额度、不显示密钥。', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
-  { name: 'generate_image', description: '付费文生图，每次一张、不自动重试。默认gpt-image-2.5；2K/4K或size长边>2048路由sunburst；显式model覆盖，比例不推断size。任何sunburst调用必须获得本次交互批准。', inputSchema: { type: 'object', properties: { ...COMMON }, required: ['prompt'], additionalProperties: false } },
+  { name: 'generate_image', description: '付费文生图，每次一张、不自动重试。默认gpt-image-2.5；2K/4K或size长边>2048路由sunburst；显式model覆盖，普通2.5仅指定比例时使用默认尺寸；明确size优先。任何sunburst调用必须获得本次交互批准。', inputSchema: { type: 'object', properties: { ...COMMON }, required: ['prompt'], additionalProperties: false } },
   { name: 'edit_image', description: '付费图像编辑，每次一张、不自动重试。1–4张工作区本地PNG/JPEG/WebP，可选同尺寸PNG蒙版。模型路由与文生图相同；sunburst需本次交互批准。', inputSchema: { type: 'object', properties: { ...COMMON, image_paths: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1, maxItems: 4 }, mask_path: { type: 'string', minLength: 1, description: '可选PNG蒙版；需与第一张原图尺寸匹配' } }, required: ['prompt', 'image_paths'], additionalProperties: false } },
 ];
 
@@ -52,12 +60,18 @@ function validate(name, args) {
   if (Object.hasOwn(args, 'model') && !MODELS.includes(args.model)) fail('model仅支持gpt-image-2.5或gpt-image-2.5-sunburst。');
   const model = selectModel(args);
   const fields = { model, prompt: args.prompt, n: 1 };
+  if (Object.hasOwn(args, 'aspect_ratio') && !Object.hasOwn(RATIO_SIZES, args.aspect_ratio)) fail('aspect_ratio不是支持的比例。');
+  // Match standalone numeric ratios; conflicting prompt ratios leave upstream sizing unchanged.
+  const ratios = [...args.prompt.matchAll(/(?<![\d.])(\d+)\s*[:：]\s*(\d+)(?![\d.])/g)].map(m => `${m[1]}:${m[2]}`);
+  const unique = [...new Set(ratios)];
+  const ratio = args.aspect_ratio ?? (unique.length === 1 ? unique[0] : undefined);
+  if (!Object.hasOwn(args, 'size') && model === DEFAULT_MODEL && Object.hasOwn(RATIO_SIZES, ratio)) fields.size = RATIO_SIZES[ratio];
   if (Object.hasOwn(args, 'size')) {
     if (args.size !== 'auto') {
       const match = typeof args.size === 'string' && /^(\d{2,5})x(\d{2,5})$/.exec(args.size);
       if (!match) fail('size必须为auto或WIDTHxHEIGHT。');
       const [width, height] = match.slice(1).map(Number);
-      if (!width || !height || width % 16 || height % 16) fail('宽高必须是正数且为16的倍数。');
+      if (!width || !height || ((width % 16 || height % 16) && !(model === DEFAULT_MODEL && Object.values(RATIO_SIZES).includes(args.size)))) fail('宽高须为16的倍数，或普通2.5支持的精确比例预设尺寸。');
       if (Math.max(width, height) > 3840 || Math.min(width, height) > 2160) fail('尺寸超过官方最大范围3840x2160。');
       if (Math.max(width, height) / Math.min(width, height) > 3) fail('宽高比必须在1:3到3:1之间。');
     }

@@ -8,7 +8,7 @@ import https from 'node:https';
 import { syncBuiltinESMExports } from 'node:module';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
-import { tools, selectModel, run } from './image-core.js';
+import { tools, selectModel, run, RATIO_SIZES } from './image-core.js';
 
 const KEY = 'test-secret-never-send-to-upstream';
 function png(width = 16, height = 16) {
@@ -53,12 +53,31 @@ test('JSON generation fixed endpoint, fields/no inferred size, UUID save and MCP
   const [url, request] = options.calls[0];
   assert.equal(url, 'https://api.yomiapi.com/v1/images/generations'); assert.equal(request.redirect, 'manual');
   assert.equal(request.headers.Authorization, `Bearer ${KEY}`); assert.equal(request.headers['Content-Type'], 'application/json');
-  assert.deepEqual(JSON.parse(request.body), { model: 'gpt-image-2.5', prompt: '16:9 photograph', n: 1, quality: 'high' });
-  assert.ok(request.signal instanceof AbortSignal); assert.match(result.content[0].text, /gpt-image-2.5.*未指定/);
+  assert.deepEqual(JSON.parse(request.body), { model: 'gpt-image-2.5', prompt: '16:9 photograph', n: 1, size: '1672x941', quality: 'high' });
+  assert.ok(request.signal instanceof AbortSignal); assert.match(result.content[0].text, /gpt-image-2.5.*1672x941/);
   const file = result.content[1].text.split('\n')[0].slice('图片已保存：'.length);
   assert.match(path.basename(file), /^[0-9a-f-]{36}\.png$/); assert.deepEqual(await readFile(file), png());
   assert.match(result.content[1].text, /16x16/);
   assert.deepEqual(result.content[2], { type: 'image', mimeType: 'image/png', data: png().toString('base64') });
+});
+test('ordinary 2.5 ratio presets and explicit size precedence', async t => {
+  const options = await fixture(t);
+  for (const [ratio, size] of Object.entries(RATIO_SIZES)) {
+    await run('generate_image', { prompt: `生成图片，比例${ratio}` }, options);
+    assert.equal(JSON.parse(options.calls.at(-1)[1].body).size, size);
+    await run('generate_image', { prompt: 'image', aspect_ratio: ratio }, options);
+    assert.equal(JSON.parse(options.calls.at(-1)[1].body).size, size);
+    await run('generate_image', { prompt: 'image', size }, options);
+    assert.equal(JSON.parse(options.calls.at(-1)[1].body).size, size);
+  }
+  for (const size of ['auto', '1536x2048']) {
+    await run('generate_image', { prompt: '9:16 image', size }, options);
+    assert.equal(JSON.parse(options.calls.at(-1)[1].body).size, size);
+  }
+  for (const prompt of ['image', '16:9 or 9:16', '7:5 image']) {
+    await run('generate_image', { prompt }, options);
+    assert.equal(JSON.parse(options.calls.at(-1)[1].body).size, undefined);
+  }
 });
 test('Sunburst approval is awaited, exact true and fresh approval required', async t => {
   const options = await fixture(t);

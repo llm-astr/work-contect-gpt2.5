@@ -50,7 +50,7 @@ export function apply(ctx, config) {
                 agent: exec.agent,
                 toolName: `mcp__yomi_image__${tool.name}`,
                 signal: exec.signal,
-                reason: request.tasks ? `付费批量生图确认：共${request.tasks.length}项，其中含Sunburst。批准后各任务会立即并发提交、分别计费且不自动重试。\n${request.tasks.map(t => `${t.index}. ${t.model}；${t.size || '未指定尺寸'}；${t.prompt}`).join('\n')}` : `付费 Sunburst 生图确认。模型：${request.model}；目标尺寸：${request.size || '未指定，上游自动'}。请核实这确实是用户要求的2K/4K或高分辨率，而不是模型根据比例补出的要求。提示词：${request.prompt}`,
+                reason: request.tasks ? `付费批量${tool.name === 'edit_images' ? '图像编辑' : '生图'}确认：共${request.tasks.length}项，其中含Sunburst。批准后各任务会立即并发提交、分别计费且不自动重试。\n${request.tasks.map(t => `${t.index}. ${t.model}；${t.size || '未指定尺寸'}；${t.prompt}`).join('\n')}` : `付费 Sunburst 生图确认。模型：${request.model}；目标尺寸：${request.size || '未指定，上游自动'}。请核实这确实是用户要求的2K/4K或高分辨率，而不是模型根据比例补出的要求。提示词：${request.prompt}`,
               });
               return outcome === 'allowed-once';
             },

@@ -28,7 +28,7 @@ async function fixture(t) {
 }
 
 test('raw MCP descriptors have closed JSON schemas', () => {
-  assert.deepEqual(tools.map(tool => tool.name), ['status', 'generate_image', 'edit_image', 'generate_images']);
+  assert.deepEqual(tools.map(tool => tool.name), ['status', 'generate_image', 'edit_image', 'generate_images', 'edit_images']);
   for (const tool of tools) { assert.equal(tool.inputSchema.type, 'object'); assert.equal(tool.inputSchema.additionalProperties, false); }
   assert.equal(tools[2].inputSchema.properties.image_paths.maxItems, 4);
 });

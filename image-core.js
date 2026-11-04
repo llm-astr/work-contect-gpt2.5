@@ -31,11 +31,13 @@ const COMMON = {
 };
 
 const BATCH = { name: 'generate_images', description: '付费批量文生图：一次接收多个独立任务，不设固定数量或并发上限，并发提交，无需等待上一张返回。每项分别计费、不重试；按输入顺序回传，失败不影响其他项。多张互不依赖的图片优先使用此工具。含sunburst时整批提交前需明确批准。', inputSchema: { type: 'object', properties: { tasks: { type: 'array', minItems: 1, items: { type: 'object', properties: { ...COMMON }, required: ['prompt'], additionalProperties: false } } }, required: ['tasks'], additionalProperties: false } };
+const BATCH_EDIT = { name: 'edit_images', description: '付费批量图像编辑：一次接收多个独立编辑任务，不设固定数量或并发上限，并发提交，无需等待上一张返回。适合先用单张定稿风格，再把其余素材按同一规范并行编辑。每项分别计费、不重试；按输入顺序回传，失败不影响其他项。含sunburst时整批提交前需明确批准。', inputSchema: { type: 'object', properties: { tasks: { type: 'array', minItems: 1, items: { type: 'object', properties: { ...COMMON, image_paths: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1, maxItems: 4 }, mask_path: { type: 'string', minLength: 1, description: '可选PNG蒙版；需与第一张原图尺寸匹配' } }, required: ['prompt', 'image_paths'], additionalProperties: false } } }, required: ['tasks'], additionalProperties: false } };
 export const tools = [
   { name: 'status', description: '检查生图配置，不调用外部API、不消耗额度、不显示密钥。', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'generate_image', description: '付费文生图，每次一张、不自动重试。默认gpt-image-2.5；2K/4K或size长边>2048路由sunburst；显式model覆盖，普通2.5仅指定比例时使用默认尺寸；明确size优先。任何sunburst调用必须获得本次交互批准。', inputSchema: { type: 'object', properties: { ...COMMON }, required: ['prompt'], additionalProperties: false } },
   { name: 'edit_image', description: '付费图像编辑，每次一张、不自动重试。1–4张工作区本地PNG/JPEG/WebP，可选同尺寸PNG蒙版。模型路由与文生图相同；sunburst需本次交互批准。', inputSchema: { type: 'object', properties: { ...COMMON, image_paths: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1, maxItems: 4 }, mask_path: { type: 'string', minLength: 1, description: '可选PNG蒙版；需与第一张原图尺寸匹配' } }, required: ['prompt', 'image_paths'], additionalProperties: false } },
   BATCH,
+  BATCH_EDIT,
 ];
 
 export function selectModel(args = {}) {
@@ -280,13 +282,30 @@ async function saveResponse(result, root, fields, signal, outputMode = 'image') 
  * invocation; the caller owns interactive/one-use authorization, not this core.
  * apiKey is optional for status. No disk credential lookup, caching, or retries.
  */
-async function runBatch(args, { workspace, apiKey, signal: externalSignal, approve }) {
-  if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(k => k !== 'tasks') || !Array.isArray(args.tasks) || args.tasks.length < 1) fail('tasks需要至少1个独立生图任务。');
+async function editBody(args, fields, root, signal) {
+  const [images, mask] = await Promise.all([
+    Promise.all(args.image_paths.map(value => localImage(root, value, signal))),
+    args.mask_path ? localImage(root, args.mask_path, signal) : null,
+  ]);
+  if (mask && mask.mime !== 'image/png') fail('蒙版必须为PNG。');
+  if (mask?.dimensions && images[0].dimensions && mask.dimensions.join('x') !== images[0].dimensions.join('x')) fail('蒙版必须与第一张参考图尺寸匹配。');
+  const body = new FormData();
+  for (const [key, value] of Object.entries(fields)) body.append(key, String(value));
+  for (const image of images) body.append(images.length === 1 ? 'image' : 'image[]', new Blob([image.data], { type: image.mime }), `image.${image.ext}`);
+  if (mask) body.append('mask', new Blob([mask.data], { type: mask.mime }), 'mask.png');
+  return body;
+}
+
+async function runBatch(name, args, { workspace, apiKey, signal: externalSignal, approve }) {
+  const editing = name === 'edit_images';
+  if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(k => k !== 'tasks') || !Array.isArray(args.tasks) || args.tasks.length < 1) fail('tasks需要至少1个独立任务。');
   // Validate the whole batch before any paid request can start.
-  const fields = args.tasks.map(task => validate('generate_image', task));
+  const fields = args.tasks.map(task => validate(editing ? 'edit_image' : 'generate_image', task));
   if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) fail('请在插件配置中填写有效密钥。');
   const root = await realpath(path.resolve(workspace));
   const signal = externalSignal ? AbortSignal.any([externalSignal, AbortSignal.timeout(TIMEOUT)]) : AbortSignal.timeout(TIMEOUT);
+  signal.throwIfAborted();
+  const prepared = editing ? await Promise.all(args.tasks.map((task, i) => editBody(task, fields[i], root, signal))) : null;
   signal.throwIfAborted();
   if (fields.some(f => f.model === SUNBURST_MODEL)) {
     let approved;
@@ -298,11 +317,11 @@ async function runBatch(args, { workspace, apiKey, signal: externalSignal, appro
   }
   signal.throwIfAborted();
   const results = await Promise.allSettled(fields.map(async (field, i) => {
-    const response = await api('/images/generations', field, apiKey.trim(), signal, true);
+    const response = await api(editing ? '/images/edits' : '/images/generations', editing ? prepared[i] : field, apiKey.trim(), signal, !editing);
     return saveResponse(response, root, field, signal, args.tasks[i].output_mode);
   }));
   const succeeded = results.filter(r => r.status === 'fulfilled').length;
-  const content = [{ type: 'text', text: `批量生图：共${results.length}项，成功${succeeded}项，失败${results.length - succeeded}项。各项独立提交一次；不会自动重试。结果按输入顺序列出。` }];
+  const content = [{ type: 'text', text: `批量${editing ? '编辑' : '生图'}：共${results.length}项，成功${succeeded}项，失败${results.length - succeeded}项。各项独立提交一次；不会自动重试。结果按输入顺序列出。` }];
   results.forEach((result, i) => {
     content.push({ type: 'text', text: `任务${i + 1}：${result.status === 'fulfilled' ? '成功' : '失败'}` });
     if (result.status === 'fulfilled') content.push(...result.value.content);
@@ -314,7 +333,7 @@ async function runBatch(args, { workspace, apiKey, signal: externalSignal, appro
 export async function run(name, args = {}, { workspace = process.cwd(), apiKey, signal: externalSignal, approve } = {}) {
   let signal;
   try {
-    if (name === 'generate_images') return await runBatch(args, { workspace, apiKey, signal: externalSignal, approve });
+    if (name === 'generate_images' || name === 'edit_images') return await runBatch(name, args, { workspace, apiKey, signal: externalSignal, approve });
     const fields = validate(name, args);
     if (name === 'status') {
       return { content: [{ type: 'text', text: JSON.stringify({ default_model: DEFAULT_MODEL, available_models: MODELS, base_url: BASE, credentials: typeof apiKey === 'string' && apiKey.trim() ? '已配置密钥（未验证远端）' : '未配置密钥，请在本机配置，勿在聊天中发送密钥。', workspace: path.resolve(workspace), official_max_size: '3840x2160' }) }] };
@@ -326,16 +345,7 @@ export async function run(name, args = {}, { workspace = process.cwd(), apiKey, 
     const root = await realpath(path.resolve(workspace));
     let body = fields;
     if (name === 'edit_image') {
-      const [images, mask] = await Promise.all([
-        Promise.all(args.image_paths.map(value => localImage(root, value, signal))),
-        args.mask_path ? localImage(root, args.mask_path, signal) : null,
-      ]);
-      if (mask && mask.mime !== 'image/png') fail('蒙版必须为PNG。');
-      if (mask?.dimensions && images[0].dimensions && mask.dimensions.join('x') !== images[0].dimensions.join('x')) fail('蒙版必须与第一张参考图尺寸匹配。');
-      body = new FormData();
-      for (const [key, value] of Object.entries(fields)) body.append(key, String(value));
-      for (const image of images) body.append(images.length === 1 ? 'image' : 'image[]', new Blob([image.data], { type: image.mime }), `image.${image.ext}`);
-      if (mask) body.append('mask', new Blob([mask.data], { type: mask.mime }), 'mask.png');
+      body = await editBody(args, fields, root, signal);
     }
     signal.throwIfAborted();
     if (fields.model === SUNBURST_MODEL) {

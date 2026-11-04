@@ -27,7 +27,7 @@ const ctx = {
   get() { return undefined; },
 };
 apply(ctx, config);
-assert.equal(registered.length, 4);
+assert.equal(registered.length, 5);
 const status = registered.find(t => t.name.endsWith('__status'));
 const result = await status.execute({}, { signal: new AbortController().signal });
 assert.ok(JSON.stringify(result).includes('gpt-image-2.5'));

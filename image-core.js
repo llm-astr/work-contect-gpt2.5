@@ -30,7 +30,7 @@ const COMMON = {
   output_mode: { type: 'string', enum: ['image', 'file'], description: '默认image：保存文件并回传图片供检查，无需再次read_image；file：只返回保存路径，适合无需视觉检查的文件交付，减少上下文传输。仅控制本地结果，不发送上游。' },
 };
 
-const BATCH = { name: 'generate_images', description: '付费批量文生图：一次接收1–5个独立任务，并发提交，无需等待上一张返回。每项分别计费、不重试；按输入顺序回传，失败不影响其他项。多张互不依赖的图片优先使用此工具。含sunburst时整批提交前需明确批准。', inputSchema: { type: 'object', properties: { tasks: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'object', properties: { ...COMMON }, required: ['prompt'], additionalProperties: false } } }, required: ['tasks'], additionalProperties: false } };
+const BATCH = { name: 'generate_images', description: '付费批量文生图：一次接收多个独立任务，不设固定数量或并发上限，并发提交，无需等待上一张返回。每项分别计费、不重试；按输入顺序回传，失败不影响其他项。多张互不依赖的图片优先使用此工具。含sunburst时整批提交前需明确批准。', inputSchema: { type: 'object', properties: { tasks: { type: 'array', minItems: 1, items: { type: 'object', properties: { ...COMMON }, required: ['prompt'], additionalProperties: false } } }, required: ['tasks'], additionalProperties: false } };
 export const tools = [
   { name: 'status', description: '检查生图配置，不调用外部API、不消耗额度、不显示密钥。', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'generate_image', description: '付费文生图，每次一张、不自动重试。默认gpt-image-2.5；2K/4K或size长边>2048路由sunburst；显式model覆盖，普通2.5仅指定比例时使用默认尺寸；明确size优先。任何sunburst调用必须获得本次交互批准。', inputSchema: { type: 'object', properties: { ...COMMON }, required: ['prompt'], additionalProperties: false } },
@@ -281,7 +281,7 @@ async function saveResponse(result, root, fields, signal, outputMode = 'image') 
  * apiKey is optional for status. No disk credential lookup, caching, or retries.
  */
 async function runBatch(args, { workspace, apiKey, signal: externalSignal, approve }) {
-  if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(k => k !== 'tasks') || !Array.isArray(args.tasks) || args.tasks.length < 1 || args.tasks.length > 5) fail('tasks需要1–5个独立生图任务。');
+  if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(k => k !== 'tasks') || !Array.isArray(args.tasks) || args.tasks.length < 1) fail('tasks需要至少1个独立生图任务。');
   // Validate the whole batch before any paid request can start.
   const fields = args.tasks.map(task => validate('generate_image', task));
   if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) fail('请在插件配置中填写有效密钥。');

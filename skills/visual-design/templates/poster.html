@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>海报排版编辑器</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#e8e5df;color:#172b2b;font-family:system-ui,sans-serif}main{display:grid;grid-template-columns:290px 1fr;gap:28px;padding:28px}aside{background:#fff;border-radius:12px;padding:22px;height:max-content}h1{font-size:21px;margin:0 0 12px}label{display:block;font-size:13px;margin:15px 0 5px}input,textarea,select,button{width:100%;padding:9px;border:1px solid #bbb;border-radius:5px;font:inherit}button{background:#172b2b;color:white;cursor:pointer;margin-top:16px}small{display:block;line-height:1.6;margin-top:12px}#preview svg{width:min(100%,560px);height:auto;box-shadow:0 12px 40px #0002}#preview{display:flex;justify-content:center;align-items:start}@media(max-width:700px){main{grid-template-columns:1fr}}@media print{aside{display:none}main{display:block;padding:0}#preview svg{width:100%;box-shadow:none}body{background:white}}
+</style><main><aside><h1>海报排版编辑器</h1><small>上传主视觉，填写真实文案，下载可编辑 SVG。全部在浏览器本地处理。</small>
+<label>版式</label><select id="layout"><option value="editorial">编辑式 · 上标题下主视觉</option><option value="product">产品 · 左文右图</option><option value="event">活动 · 大标题与日期</option><option value="cover">封面 · 全幅主视觉</option><option value="info">信息 · 分区卡片</option></select>
+<label>标题（换行控制分行）</label><textarea id="title">日常之外\n一杯灵感</textarea><label>说明（每行不宜过长）</label><textarea id="subtitle">周末咖啡与设计分享\n用新的视角观察生活</textarea><label>日期 / 品牌</label><input id="meta" value="SAT 14:00 · STUDIO 08"><label>背景色</label><input id="bg" type="color" value="#f4efe5"><label>文字色</label><input id="fg" type="color" value="#183a37"><label>强调色</label><input id="accent" type="color" value="#cb563c"><label>主视觉图片</label><input id="image" type="file" accept="image/png,image/jpeg,image/webp"><button id="download">下载 SVG</button><small>默认竖版 1080×1440。长文案请分行或删减，检查预览有无溢出。SVG 图片会嵌入文件。需 PNG 时用可用的浏览器或绘图软件导出；字体外观取决于本机字体。</small></aside><section id="preview"></section></main>
+<script>
+const $=id=>document.getElementById(id);let picture='';
+const esc=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+function lines(s,x,y,size,color,weight=400){return `<text fill="${color}" font-family="PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Arial,sans-serif" font-size="${size}" font-weight="${weight}">${s.split('\n').map((line,i)=>`<tspan x="${x}" y="${y+i*size*1.22}">${esc(line)}</tspan>`).join('')}</text>`}
+function render(){const bg=$('bg').value,fg=$('fg').value,a=$('accent').value,l=$('layout').value;let box=[72,500,936,700],tx=72,ty=190,ts=104,sy=390,my=1340;
+if(l==='product'){box=[525,180,483,1060];ty=300;ts=76;sy=610}
+if(l==='event'){box=[72,680,936,560];ts=130;sy=540}
+if(l==='cover'){box=[0,0,1080,1440];ty=1020;ts=100;sy=1240}
+if(l==='info'){box=[612,160,396,580];ts=76;ty=220;sy=600}
+let art=picture?`<image href="${picture}" x="${box[0]}" y="${box[1]}" width="${box[2]}" height="${box[3]}" preserveAspectRatio="xMidYMid slice" clip-path="url(#art)"/>`:`<rect x="${box[0]}" y="${box[1]}" width="${box[2]}" height="${box[3]}" fill="${a}" opacity=".18"/><circle cx="${box[0]+box[2]/2}" cy="${box[1]+box[3]/2}" r="${Math.min(box[2],box[3])*.3}" fill="${a}" opacity=".6"/>`;
+if(l==='cover')art+=`<rect y="880" width="1080" height="560" fill="${bg}" opacity=".94"/>`;
+$('preview').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440"><defs><clipPath id="art"><rect x="${box[0]}" y="${box[1]}" width="${box[2]}" height="${box[3]}"/></clipPath></defs><rect width="1080" height="1440" fill="${bg}"/>${art}<rect x="72" y="70" width="56" height="10" fill="${a}"/>${lines($('title').value,tx,ty,ts,fg,700)}${lines($('subtitle').value,tx,sy,32,fg)}<line x1="72" y1="1290" x2="1008" y2="1290" stroke="${fg}" opacity=".3"/>${lines($('meta').value,72,my,26,fg)}</svg>`}
+for(const id of ['title','subtitle','meta','bg','fg','accent','layout'])$(id).addEventListener('input',render);
+$('image').addEventListener('change',()=>{const f=$('image').files[0];if(!f)return;if(!['image/png','image/jpeg','image/webp'].includes(f.type)||f.size>20*1024*1024){alert('请选择20MB内PNG/JPEG/WebP图片');return}const r=new FileReader();r.onload=()=>{picture=r.result;render()};r.readAsDataURL(f)});
+$('download').onclick=()=>{const data=new XMLSerializer().serializeToString($('preview').firstChild),u=URL.createObjectURL(new Blob([data],{type:'image/svg+xml'})),a=document.createElement('a');a.href=u;a.download='poster.svg';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};render();
+</script></html>

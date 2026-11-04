@@ -60,4 +60,16 @@ try {
   assert.ok(workspace.startsWith(join(tmpdir(), 'dsh-image-live-')));
   await rm(workspace, { recursive: true });
 }
-console.log('PASS: actual DSH schema, 3 registrations, MCP adapter, and changed Key read on next call without re-registering.');
+const { Context } = await import('@deepseek-ai/cordis');
+const { SkillRegistry } = await import('@deepseek-ai/dsh-skill');
+const registryContext = new Context();
+const registry = new SkillRegistry(registryContext);
+const skillCtx = { ...ctx, get(name) { return name === 'skills' ? registry : undefined; } };
+apply(skillCtx, config);
+const catalog = await registry.list();
+assert.ok(catalog.some(s => s.name === 'visual-design'));
+const design = await registry.get('visual-design');
+assert.match(design.content, /精确叠字/);
+assert.equal(design.resourceBase.kind, 'directory');
+assert.ok(design.resourceBase.path.endsWith('/skills/visual-design/'));
+console.log('PASS: DSH schema, MCP adapter, live Key, real skill registry list/get and resource base.');

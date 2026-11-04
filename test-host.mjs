@@ -14,7 +14,8 @@ registerHooks({ resolve(spec, context, next) {
   }
   return next(spec, context);
 } });
-const { Config, apply } = await import('./index.js');
+const { Config, apply, inject } = await import('./index.js');
+assert.deepEqual(inject, ['tools', 'skills']);
 const z = (await import('@deepseek-ai/schemastery')).default;
 const [config] = z.resolve({}, Config);
 assert.equal(config.apiKey.get(), '');
@@ -72,4 +73,4 @@ const design = await registry.get('visual-design');
 assert.match(design.content, /精确叠字/);
 assert.equal(design.resourceBase.kind, 'directory');
 assert.ok(design.resourceBase.path.endsWith('/skills/visual-design/'));
-console.log('PASS: DSH schema, MCP adapter, live Key, real skill registry list/get and resource base.');
+console.log('PASS: DSH schema, MCP adapter, live Key, skill registry and dependency declaration.');

@@ -27,6 +27,7 @@ const COMMON = {
   aspect_ratio: { type: 'string', enum: Object.keys(RATIO_SIZES), description: '普通gpt-image-2.5未指定size时按比例使用最优尺寸；也可直接在prompt写比例。明确size（含auto）优先。' },
   size: { type: 'string', description: 'auto或WIDTHxHEIGHT；一般宽高为16倍数，普通2.5另支持比例预设的精确像素值，最大3840x2160（也支持竖图）' },
   quality: { type: 'string', enum: QUALITY, description: 'xhigh和max仅支持sunburst' },
+  output_mode: { type: 'string', enum: ['image', 'file'], description: '默认image：保存文件并回传图片供检查，无需再次read_image；file：只返回保存路径，适合无需视觉检查的文件交付，减少上下文传输。仅控制本地结果，不发送上游。' },
 };
 
 export const tools = [
@@ -58,6 +59,7 @@ function validate(name, args) {
   if (name === 'status') return null;
   if (typeof args.prompt !== 'string' || !args.prompt.trim()) fail('prompt必须是非空字符串。');
   if (Object.hasOwn(args, 'model') && !MODELS.includes(args.model)) fail('model仅支持gpt-image-2.5或gpt-image-2.5-sunburst。');
+  if (Object.hasOwn(args, 'output_mode') && !['image', 'file'].includes(args.output_mode)) fail('output_mode仅支持image或file。');
   const model = selectModel(args);
   const fields = { model, prompt: args.prompt, n: 1 };
   if (Object.hasOwn(args, 'aspect_ratio') && !Object.hasOwn(RATIO_SIZES, args.aspect_ratio)) fail('aspect_ratio不是支持的比例。');
@@ -247,7 +249,7 @@ function decodeBase64(value) {
   return data;
 }
 
-async function saveResponse(result, root, fields, signal) {
+async function saveResponse(result, root, fields, signal, outputMode = 'image') {
   if (!result || !Array.isArray(result.data) || !result.data.length || result.data.length > 4) fail('响应不含预期data图片数组。');
   const output = path.join(root, 'generated-images');
   await mkdir(output, { recursive: true });
@@ -264,8 +266,8 @@ async function saveResponse(result, root, fields, signal) {
     const target = path.join(canonical, `${randomUUID()}.${info.ext}`);
     const file = await open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     try { await file.writeFile(data, { signal }); } finally { await file.close(); }
-    content.push({ type: 'text', text: `图片已保存：${target}\n实际图片尺寸：${info.dimensions ? info.dimensions.join('x') : '未知（上游图片未含可识别尺寸）'}\n请在回复中展示或使用present提供文件。` });
-    content.push({ type: 'image', mimeType: info.mime, data: data.toString('base64') });
+    content.push({ type: 'text', text: `图片已保存：${target}\n实际图片尺寸：${info.dimensions ? info.dimensions.join('x') : '未知（上游图片未含可识别尺寸）'}\n${outputMode === 'image' ? '本结果已包含图片，可直接检查，无需再次read_image。' : '本次仅回传文件路径，未提供视觉检查结果。'}请在回复中展示或使用present提供文件。` });
+    if (outputMode === 'image') content.push({ type: 'image', mimeType: info.mime, data: row.b64_json || data.toString('base64') });
   }
   return { content };
 }
@@ -290,9 +292,10 @@ export async function run(name, args = {}, { workspace = process.cwd(), apiKey, 
     const root = await realpath(path.resolve(workspace));
     let body = fields;
     if (name === 'edit_image') {
-      const images = [];
-      for (const value of args.image_paths) images.push(await localImage(root, value, signal));
-      const mask = args.mask_path ? await localImage(root, args.mask_path, signal) : null;
+      const [images, mask] = await Promise.all([
+        Promise.all(args.image_paths.map(value => localImage(root, value, signal))),
+        args.mask_path ? localImage(root, args.mask_path, signal) : null,
+      ]);
       if (mask && mask.mime !== 'image/png') fail('蒙版必须为PNG。');
       if (mask?.dimensions && images[0].dimensions && mask.dimensions.join('x') !== images[0].dimensions.join('x')) fail('蒙版必须与第一张参考图尺寸匹配。');
       body = new FormData();
@@ -311,7 +314,7 @@ export async function run(name, args = {}, { workspace = process.cwd(), apiKey, 
     }
     signal.throwIfAborted();
     const result = await api(name === 'generate_image' ? '/images/generations' : '/images/edits', body, apiKey.trim(), signal, name === 'generate_image');
-    return await saveResponse(result, root, fields, signal);
+    return await saveResponse(result, root, fields, signal, args.output_mode);
   } catch (error) {
     if (error instanceof CoreError) throw error;
     if (signal?.aborted || externalSignal?.aborted) throw new Error('图片操作已取消或超过480秒。请求可能已计费，请检查中转记录；不会自动重试。');

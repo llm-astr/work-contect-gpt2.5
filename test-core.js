@@ -60,6 +60,17 @@ test('JSON generation fixed endpoint, fields/no inferred size, UUID save and MCP
   assert.match(result.content[1].text, /16x16/);
   assert.deepEqual(result.content[2], { type: 'image', mimeType: 'image/png', data: png().toString('base64') });
 });
+test('file-only delivery saves exact bytes with one submit and no upstream output_mode', async t => {
+  const options = await fixture(t);
+  const result = await run('generate_image', { prompt: 'x', output_mode: 'file' }, options);
+  assert.equal(options.calls.length, 1);
+  assert.equal(JSON.parse(options.calls[0][1].body).output_mode, undefined);
+  assert.equal(result.content.some(c => c.type === 'image'), false);
+  const file = result.content[1].text.split('\n')[0].slice('图片已保存：'.length);
+  assert.deepEqual(await readFile(file), png());
+  await assert.rejects(run('generate_image', { prompt: 'x', output_mode: 'invalid' }, options), /output_mode/);
+  assert.equal(options.calls.length, 1);
+});
 test('ordinary 2.5 ratio presets and explicit size precedence', async t => {
   const options = await fixture(t);
   for (const [ratio, size] of Object.entries(RATIO_SIZES)) {

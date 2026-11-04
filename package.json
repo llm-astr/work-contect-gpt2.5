@@ -1,6 +1,6 @@
 {
   "name": "dsh-yomi-image-mcp",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "private": true,
   "type": "module",
   "description": "DSH Yomi GPT Image tools with live API Key settings, no Python required",
@@ -13,7 +13,7 @@
     "./icon": "./icon.svg"
   },
   "files": ["skills", "index.js", "client.js", "image-core.js", "cordis.patch.yml", "README.md", "locale/*.json", "icon.svg"],
-  "scripts": { "test": "node --test test-core.js test-client.js" },
+  "scripts": { "test": "node --test test-core.js test-client.js test-batch.js" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": { "platform": "web", "immediately": true, "inject": ["@deepseek-ai/dsh-client-ui-plugin-manager"] }
